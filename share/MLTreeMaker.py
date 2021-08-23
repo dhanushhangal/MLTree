@@ -20,13 +20,15 @@ import AthenaPoolCnvSvc.ReadAthenaPool
 #svcMgr.EventSelector.InputCollections = ["/eos/user/m/mswiatlo/esd/mc16_13TeV.428002.ParticleGun_single_piminus_logE0p2to2000.recon.ESD.e7279_s3411_r11281/ESD.17269624._000146.pool.root.1"]
 #svcMgr.EventSelector.InputCollections = ["/afs/cern.ch/work/a/angerami/private/JetML/mc16_13TeV.428000.ParticleGun_single_pi0_logE0p2to2000.recon.ESD.e7279_s3411_r11281/ESD.17269610._001596.pool.root.1"]
 #svcMgr.EventSelector.InputCollections = ["/eos/user/a/angerami/mc16_13TeV.361021.Pythia8EvtGen_A14NNPDF23LO_jetjet_JZ1W.recon.ESD.e3569_s3170_r10788_tid15388779_00/ESD.15388779._001630.pool.root.1"]
-svcMgr.EventSelector.InputCollections = ["/eos/user/a/angerami/mc16_13TeV.426328.ParticleGun_single_piplus_logE5to2000.recon.ESD.e5661_s3170_r9857/ESD.11980046._000944.pool.root.1"]
+#svcMgr.EventSelector.InputCollections = ["/eos/user/a/angerami/mc16_13TeV.426328.ParticleGun_single_piplus_logE5to2000.recon.ESD.e5661_s3170_r9857/ESD.11980046._000944.pool.root.1"]
+svcMgr.EventSelector.InputCollections = ["/afs/cern.ch/work/a/angerami/public/mc16_13TeV/ESD.17269624._000081.pool.root.1"]
 #svcMgr.EventSelector.InputCollections = ["/eos/user/a/angerami/mc16_13TeV/ESD.15388997._000028.pool.root.1"]
 #svcMgr.EventSelector.InputCollections = ["/eos/user/m/mswiatlo/esd/mc16_13TeV.428001.ParticleGun_single_piplus_logE0p2to2000.recon.ESD.e7279_s3411_r11281/ESD.17269616._000058.pool.root.1"]
 from AthenaCommon.GlobalFlags import jobproperties
 jobproperties.Global.DetDescrVersion="ATLAS-R2-2016-01-00-01" # For MC16
 
 
+include("RecExCond/AllDet_detDescr.py")
 
 from RecExConfig.ObjKeyStore import ObjKeyStore, objKeyStore
 oks = ObjKeyStore()
@@ -87,6 +89,8 @@ if rerunTruthJets:
     #even if they are not needed by the jet finders (truth only)
     #building origin-corrected topoclusters tries to modify existing const container
     jetFlags.useTracks=False
+    jetFlags.usePFlow=False
+    jetFlags.useTopo=False
     from JetRec.JetRecStandardToolManager import jtm
     jtm.addJetFinder("AntiKt4TruthJets",    "AntiKt", 0.4,    "truth", ptmin= 5000)
     from JetRec.JetAlgorithm import addJetRecoToAlgSequence
@@ -127,7 +131,6 @@ svcMgr += CfgMgr.THistSvc()
 svcMgr.THistSvc.Output += ["OutputStream DATAFILE='mltree.pool.root' OPT='RECREATE'"]
 
 # Setup up geometry needed for track extrapolation
-include("RecExCond/AllDet_detDescr.py")
 from AthenaCommon.CfgGetter import getService
 getService("AtlasTrackingGeometrySvc")
 
