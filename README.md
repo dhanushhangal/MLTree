@@ -18,9 +18,8 @@ lsetup panda
 cmt find_packages && cmt compile</pre>
 </details>
 
-Using release 21
+Using release 22
 
-Follow instructions for sparse checkout; this is a clunky way to get the athena/Projects directory structure.
 ```
 mkdir MLTreeAthenaAnalysis; cd MLTreeAthenaAnalysis
 setupATLAS
@@ -33,6 +32,12 @@ Clone this git repository and create a package filter so athena knows to compile
 git clone https://github.com/dhanushhangal/MLTree.git athena/MLTree
 echo "+ MLTree" > package_filters.txt
 echo "- .*" >> package_filters.txt
+```
+
+Add the AthExOnnxRuntime package to athena and include it in the package filter file be able to compile and run OnnxRuntime
+```
+git atlas addpkg AthExOnnxRuntime
+echo "+ Control/AthenaExamples/AthExOnnxRuntime" > package_filters.txt
 ```
 
 Now setup for an out-of-source build
