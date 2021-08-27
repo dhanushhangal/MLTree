@@ -19,6 +19,25 @@
 #include "xAODCaloEvent/CaloClusterContainer.h"
 #include "xAODCaloEvent/CaloClusterChangeSignalState.h"
 
+#include "AthExOnnxRuntime/AthExOnnxRuntime.h"
+
+// Local include(s).
+#include "AthOnnxruntimeService/IONNXRuntimeSvc.h"
+
+// Framework include(s).
+#include "AthenaBaseComps/AthReentrantAlgorithm.h"
+
+// ONNX Runtime include(s).
+#include <core/session/onnxruntime_cxx_api.h>
+
+// System include(s).
+#include <memory>
+#include <iostream> 
+#include <fstream>
+#include <arpa/inet.h>
+#include <vector>
+#include <iterator>
+
 class TileTBID;
 class ICaloSurfaceHelper;
 
@@ -238,6 +257,7 @@ class MLTreeMaker: public ::AthHistogramAlgorithm {
     float m_fCluster_sumCellE;
 
   float m_fCluster_ENG_CALIB_TOT;
+  float m_fCluster_ENG_pred;
   float m_fCluster_ENG_CALIB_OUT_T;
   float m_fCluster_ENG_CALIB_DEAD_TOT;
 
@@ -273,6 +293,10 @@ class MLTreeMaker: public ::AthHistogramAlgorithm {
     float m_TileBar1[4][4];
     float m_TileBar2[2][4];
 
+    float m_EMB1_expand[128][4][1];
+    float m_EMB23[16][16][2];
+    float m_Tiles[4][4][3];
+
     int m_duplicate_PSB;
     int m_duplicate_EMB1;
     int m_duplicate_EMB2;
@@ -297,6 +321,52 @@ class MLTreeMaker: public ::AthHistogramAlgorithm {
   static constexpr unsigned int NUMETABINS[NUMSAMPLINGS]={16,128,16,8,4,4,2};
   static constexpr unsigned int NUMPHIBINS[NUMSAMPLINGS]={4,4,16,16,4,4,4};
   static constexpr const char*  SAMPLINGNAMES[NUMSAMPLINGS]={"PSB","EMB1","EMB2","EMB3","TileBar0","TileBar1","TileBar2"};
+
+  /// Name of the model file to load
+  Gaudi::Property< std::string > m_modelFileName{ this, "ModelFileName",
+     "dev/MLTest/2020-03-02/MNIST_testModel.onnx",
+     "Name of the model file to load" };
+  Gaudi::Property< std::string > m_pixelFileName{ this, "InputDataPixel",
+     "dev/MLTest/2020-03-31/t10k-images-idx3-ubyte",
+     "Name of the input pixel file to load" };
+  Gaudi::Property< std::string > m_labelFileName{ this, "InputDataLabel",
+     "dev/MLTest/2020-03-31/t10k-labels-idx1-ubyte",
+     "Name of the label file to load" };
+  Gaudi::Property<int> m_testSample {this, "TestSample", 0, "A Random Test Sample"};
+
+  /// Following properties needed to be consdered if the .onnx model is evaluated in batch mode
+  Gaudi::Property<bool> m_doBatches {this, "DoBatches", false, "Processing events by batches"};
+  Gaudi::Property<int> m_numberOfBatches {this, "NumberOfBatches", 1, "No. of batches to be passed"};
+  Gaudi::Property<int> m_sizeOfBatch {this, "SizeOfBatch", 1, "No. of elements/example in a batch"};
+  
+  /// Handle to @c AthONNX::IONNXRuntimeSvc
+  ServiceHandle< AthONNX::IONNXRuntimeSvc > m_svc{ this, "ONNXRuntimeSvc",
+                                          "AthONNX::ONNXRuntimeSvc",
+                                          "Name of the service to use" };
+
+  /// The "session" of ONNX Runtime that we'll be using
+  std::unique_ptr< Ort::Session > m_session;
+  std::vector<std::vector<float>> m_input_tensor_values;
+  std::vector<int> m_output_tensor_values;
+
+  size_t input_tensor_size_tiles = 1*4*4*3;
+  size_t input_tensor_size_EMB23 = 1*16*16*2;
+  size_t input_tensor_size_EMB1 = 1*128*4*1;
+
+  std::vector<float> input_tensor_values_tiles_;
+  std::vector<float> input_tensor_values_EMB23_;
+  std::vector<float> input_tensor_values_EMB1_;
+
+  std::vector<int64_t> input_node_dims;
+  std::vector<int64_t> output_node_dims;
+
+  size_t num_input_nodes;
+  size_t num_output_nodes;
+
+  std::vector<const char*> input_node_names;
+  std::vector<const char*> output_node_names;
+
+  std::vector<int64_t> input_node_dims_tiles, input_node_dims_EMB23, input_node_dims_EMB1;
 
 }; 
 

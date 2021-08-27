@@ -40,12 +40,104 @@
 #include "xAODTruth/TruthEventContainer.h"
 #include "xAODEventShape/EventShape.h"
 
+//AthExOnnxRuntime lib
+#include "AthExOnnxRuntime/AthExOnnxRuntime.h"
+
 #include <string>
 #include <vector>
 #include <cmath>
 #include <utility>
 #include <limits>
 #include <map>
+
+#include "TFile.h"
+#include "TTree.h"
+
+// Framework include(s).
+#include "PathResolver/PathResolver.h"
+
+// for reading and flattening tile layers
+//*******************************************************************
+std::vector<float> read_tiles(float tiles[4][4][3]) //function to load test images
+{
+ std::vector<float> input_tensor_values;
+ input_tensor_values.resize(1*4*4*3);  
+
+ int number_of_images=1;
+ int n_layers=3;
+ int n_rows=4;
+ int n_cols=4;
+
+ for(int i=0;i<number_of_images;++i)
+ { 
+    for(int r=0;r<n_rows;++r)
+    {
+     for(int c=0;c<n_cols;++c)
+     {
+       for(int l=0;l<n_layers;++l)
+       {
+           input_tensor_values[r*n_cols*n_layers+c*n_layers+l]= tiles[r][c][l];
+        }
+      }
+    }
+  }
+  return input_tensor_values;
+}
+
+// for reading and flattening EMB2 and EMB3 layers
+std::vector<float> read_EMB23(float emb23[16][16][2]) //function to load test images
+{
+ std::vector<float> input_tensor_values;
+ input_tensor_values.resize(2*16*16*1);
+
+ int number_of_images=1;
+ int n_layers=2;
+ int n_rows=16;
+ int n_cols=16;
+
+ for(int i=0;i<number_of_images;++i)
+ {
+    for(int r=0;r<n_rows;++r)
+    {
+     for(int c=0;c<n_cols;++c)
+     {
+       for(int l=0;l<n_layers;++l)
+       {
+           input_tensor_values[r*n_cols*n_layers+c*n_layers+l]= emb23[r][c][l];
+        }
+      }
+    }
+  }
+  return input_tensor_values;
+}
+
+// for reading and flattening EMB1 layer
+std::vector<float> read_EMB1(float emb1[128][4][1]) //function to load test images
+{
+ std::vector<float> input_tensor_values;
+ input_tensor_values.resize(1*4*128*1);
+
+ int number_of_images=1;
+ int n_layers=1;
+ int n_rows=128;
+ int n_cols=4;
+
+ for(int i=0;i<number_of_images;++i)
+ {
+    for(int r=0;r<n_rows;++r)
+    {
+     for(int c=0;c<n_cols;++c)
+     {
+       for(int l=0;l<n_layers;++l)
+       { 
+            input_tensor_values[r*n_cols*n_layers+c*n_layers+l]= emb1[r][c][l];
+        }
+      }
+    }
+  }
+  return input_tensor_values;
+}
+
 
 MLTreeMaker::MLTreeMaker( const std::string& name, ISvcLocator* pSvcLocator ) :
   AthHistogramAlgorithm( name, pSvcLocator ),
@@ -346,6 +438,7 @@ StatusCode MLTreeMaker::initialize() {
     if(m_doClusterMoments)
     {
       m_clusterTree->Branch("cluster_ENG_CALIB_TOT",     &m_fCluster_ENG_CALIB_TOT,      "cluster_ENG_CALIB_TOT/F");
+      m_clusterTree->Branch("cluster_ENG_pred",     &m_fCluster_ENG_pred,      "cluster_ENG_pred/F");
       m_clusterTree->Branch("cluster_ENG_CALIB_OUT_T",   &m_fCluster_ENG_CALIB_OUT_T,    "cluster_ENG_CALIB_OUT_T/F");
       m_clusterTree->Branch("cluster_ENG_CALIB_DEAD_TOT",&m_fCluster_ENG_CALIB_DEAD_TOT, "cluster_ENG_CALIB_DEAD_TOT/F");
       m_clusterTree->Branch("cluster_EM_PROBABILITY",   &m_fCluster_EM_PROBABILITY,   "cluster_EM_PROBABILITY/F");
@@ -386,6 +479,11 @@ StatusCode MLTreeMaker::initialize() {
     m_clusterTree->Branch("TileBar0",       &m_TileBar0[0],     "TileBar0[4][4]/F");
     m_clusterTree->Branch("TileBar1",       &m_TileBar1[0],     "TileBar1[4][4]/F");
     m_clusterTree->Branch("TileBar2",       &m_TileBar2[0],     "TileBar2[2][4]/F");
+/*
+    m_clusterTree->Branch("EMB1_expand", &m_EMB1_expand[0][0],  "EMB1_expand[128][4][1]/F");
+    m_clusterTree->Branch("EMB23",       &m_EMB23[0][0],        "EMB23[16][16][2]/F");
+    m_clusterTree->Branch("Tiles",       &m_Tiles[0][0],        "Tiles[4][4][3]/F");
+*/
 
     m_v_PSB.insert(m_v_PSB.end(),m_PSB,m_PSB+16);
     m_v_EMB1.insert(m_v_EMB1.end(),m_EMB1,m_EMB1+128);
@@ -411,12 +509,97 @@ StatusCode MLTreeMaker::initialize() {
 
 
   }
-ATH_MSG_INFO("here1");
+
+  // Access the service.
+  ATH_CHECK( m_svc.retrieve() );
+
+  // Find the model file.
+  const std::string modelFileName = "/afs/cern.ch/user/d/dhangal/model_fold0_opset10.onnx";
+  ATH_MSG_INFO( "Using model file: " << modelFileName );
+
+  // Set up the ONNX Runtime session.
+  Ort::SessionOptions sessionOptions;
+  sessionOptions.SetIntraOpNumThreads( 1 );
+  sessionOptions.SetGraphOptimizationLevel( ORT_ENABLE_BASIC );
+  Ort::AllocatorWithDefaultOptions allocator;  
+  m_session = std::make_unique< Ort::Session >( m_svc->env(),
+                                                modelFileName.c_str(),
+                                                sessionOptions );
+  ATH_MSG_INFO( "Created the ONNX Runtime session" );
+
+  /************************** Input Nodes *****************************/
+  /********************************************************************/
+
+  num_input_nodes = m_session->GetInputCount();
+  input_node_names.resize(num_input_nodes);
+
+  for( std::size_t i = 0; i < num_input_nodes; i++ ) {
+    // print input node names
+    char* input_name = m_session->GetInputName(i, allocator);
+    ATH_MSG_INFO("Input "<<i<<" : "<<" name= "<<input_name);
+    input_node_names[i] = input_name;
+    // print input node types
+    Ort::TypeInfo type_info = m_session->GetInputTypeInfo(i);
+    auto tensor_info = type_info.GetTensorTypeAndShapeInfo();
+    ONNXTensorElementDataType type = tensor_info.GetElementType();
+    ATH_MSG_INFO("Input "<<i<<" : "<<" type= "<<type);
+
+    // print input shapes/dims
+    input_node_dims = tensor_info.GetShape();
+    ATH_MSG_INFO("Input "<<i<<" : num_dims= "<<input_node_dims.size());
+    for (std::size_t j = 0; j < input_node_dims.size(); j++){
+        if(input_node_dims[j]<0) input_node_dims[j] =1;
+        ATH_MSG_INFO("Input"<<i<<" : dim "<<j<<"= "<<input_node_dims[j]);
+    }  
+  }
+
+  //read the input node dims for each layer and set dim[0]=1 (dim[0] refers to the batch size, 1 in this case)
+
+  Ort::TypeInfo type_info_tiles = m_session->GetInputTypeInfo(0); 
+  auto tensor_info_tiles = type_info_tiles.GetTensorTypeAndShapeInfo();
+  input_node_dims_tiles = tensor_info_tiles.GetShape();
+  input_node_dims_tiles[0] = 1;
+
+  Ort::TypeInfo type_info_EMB23 = m_session->GetInputTypeInfo(1);
+  auto tensor_info_EMB23 = type_info_EMB23.GetTensorTypeAndShapeInfo();
+  input_node_dims_EMB23 = tensor_info_EMB23.GetShape();
+  input_node_dims_EMB23[0] = 1;
+
+  Ort::TypeInfo type_info_EMB1 = m_session->GetInputTypeInfo(2);
+  auto tensor_info_EMB1 = type_info_EMB1.GetTensorTypeAndShapeInfo();
+  input_node_dims_EMB1 = tensor_info_EMB1.GetShape();
+  input_node_dims_EMB1[0] = 1;
+
+  /************************** Output Nodes *****************************/
+  /*********************************************************************/
+
+  num_output_nodes = m_session->GetOutputCount();
+  output_node_names.resize(num_output_nodes);
+
+  for( std::size_t i = 0; i < num_output_nodes; i++ ) {
+    // print output node names
+    char* output_name = m_session->GetOutputName(i, allocator);
+    ATH_MSG_INFO("Output "<<i<<" : "<<" name= "<<output_name);
+    output_node_names[i] = output_name;
+
+    Ort::TypeInfo type_info = m_session->GetOutputTypeInfo(i);
+    auto tensor_info = type_info.GetTensorTypeAndShapeInfo();
+    ONNXTensorElementDataType type = tensor_info.GetElementType();
+    ATH_MSG_INFO("Output "<<i<<" : "<<" type= "<<type);
+
+    // print output shapes/dims
+    output_node_dims = tensor_info.GetShape();
+    ATH_MSG_INFO("Output "<<i<<" : num_dims= "<<output_node_dims.size());
+    for (std::size_t j = 0; j < output_node_dims.size(); j++){
+       if(output_node_dims[j]<0) output_node_dims[j] =1;
+       ATH_MSG_INFO("Output"<<i<<" : dim "<<j<<"= "<<output_node_dims[j]);
+    }  
+  }
+
   return StatusCode::SUCCESS;
 }
 
 StatusCode MLTreeMaker::execute() {  
-
 
   // Clear all variables from previous event
   m_runNumber = m_eventNumber = m_mcEventNumber = m_mcChannelNumber = m_bcid = m_lumiBlock = 0;
@@ -1125,8 +1308,73 @@ StatusCode MLTreeMaker::execute() {
       m_cluster_cell_centerCellPhi.push_back(centerCellPhi);
       m_cluster_cell_centerCellLayer.push_back((int)centerCellLayer);
     }
-ATH_MSG_INFO("here2");
+    
     if (m_doClusterTree) {
+ 
+      ////combine different layers of the calorimeter to match Densenet model dimensions 
+      ////EMB1[128][4] -> EMB1_expand[128][4][1]; 
+      ////EMB2[16][16] & EMB3[8][16] -> EMB23[16][16][2]; 
+      ////TileBar0[4][4] & TileBar1[4][4] & TileBar2[2][4] -> Tiles[4][4][3]
+ 
+      //EMB1->EMB1_expand (same dimensions)
+      for(int ibin=0; ibin<128; ibin++){
+        for(int jbin=0; jbin<4; jbin++){
+          m_EMB1_expand[ibin][jbin][0] = clusterE*m_EMB1[ibin][jbin];
+        }
+      }
+
+      //EMB2->EMB23 (same dimensions)
+      for(int ibin=0; ibin<16; ibin++){
+        for(int jbin=0; jbin<16; jbin++){
+          m_EMB23[ibin][jbin][0] = clusterE*m_EMB2[ibin][jbin];
+        }
+      }
+
+      //EMB3->EMB23 (upscale dimensions in eta by scale 2)
+      //split every EMB3 cell along eta into two with energy distributed equally 
+      for(int ibin=0; ibin<8; ibin++){
+        for(int jbin=0; jbin<16; jbin++){
+          m_EMB23[2*ibin][jbin][1] = clusterE*m_EMB3[ibin][jbin]/2.;
+          m_EMB23[2*ibin+1][jbin][1] = clusterE*m_EMB3[ibin][jbin]/2.;
+        }
+      }
+
+      //TileBar0 and TileBar1->Tiles (same dimensions)
+      for(int ibin=0; ibin<4; ibin++){
+        for(int jbin=0; jbin<4; jbin++){
+          m_Tiles[ibin][jbin][0] = clusterE*m_TileBar0[ibin][jbin];
+          m_Tiles[ibin][jbin][1] = clusterE*m_TileBar1[ibin][jbin];
+        }
+      }
+
+      //TileBar2->Tiles (upscale dimensions in eta by scale 2)
+      //split every TileBar2 cell along eta into two with energy distributed equally 
+      for(int ibin=0; ibin<2; ibin++){
+        for(int jbin=0; jbin<4; jbin++){
+          m_Tiles[2*ibin][jbin][2] = clusterE*m_TileBar2[ibin][jbin]/2.;
+          m_Tiles[2*ibin+1][jbin][2] = clusterE*m_TileBar2[ibin][jbin]/2.;
+        }
+      }
+
+      //flatten each layer of the combined calorimeter layers in eta, phi and r
+      input_tensor_values_tiles_ = read_tiles(m_Tiles);
+      input_tensor_values_EMB23_ = read_EMB23(m_EMB23);
+      input_tensor_values_EMB1_ = read_EMB1(m_EMB1_expand);
+
+      // create input tensor object from data values
+      // multiple inputs in this case requires the creation of an input tensor array
+      auto memory_info = Ort::MemoryInfo::CreateCpu(OrtArenaAllocator, OrtMemTypeDefault);
+      Ort::Value input_tensor[3]= {(Ort::Value::CreateTensor<float>(memory_info, input_tensor_values_tiles_.data(), input_tensor_size_tiles, input_node_dims_tiles.data(), input_node_dims_tiles.size())), (Ort::Value::CreateTensor<float>(memory_info, input_tensor_values_EMB23_.data(), input_tensor_size_EMB23, input_node_dims_EMB23.data(), input_node_dims_EMB23.size())), (Ort::Value::CreateTensor<float>(memory_info, input_tensor_values_EMB1_.data(), input_tensor_size_EMB1, input_node_dims_EMB1.data(), input_node_dims_EMB1.size()))};
+      assert(input_tensor.IsTensor());
+
+      // score model & input tensor, get back output tensor
+      auto output_tensors = m_session->Run(Ort::RunOptions{nullptr}, input_node_names.data(), input_tensor, input_node_names.size(), output_node_names.data(), output_node_names.size());
+      assert(output_tensors.size() == 1 && output_tensors.front().IsTensor());
+
+      // Get pointer to output tensor float values
+      float* floatarr = output_tensors.front().GetTensorMutableData<float>();
+      ATH_MSG_INFO("truth: "<<cluster_ENG_CALIB_TOT<<"  pred: "<<pow(10,floatarr[0]));
+      m_fCluster_ENG_pred = pow(10,floatarr[0]);
 
       // Clear images
       memset(m_PSB, 0, sizeof(m_PSB[0][0]) * 16 * 4);
@@ -1136,9 +1384,11 @@ ATH_MSG_INFO("here2");
       memset(m_TileBar0, 0, sizeof(m_TileBar0[0][0]) * 4 * 4);
       memset(m_TileBar1, 0, sizeof(m_TileBar1[0][0]) * 4 * 4);
       memset(m_TileBar2, 0, sizeof(m_TileBar2[0][0]) * 2 * 4);
-      
-
-
+/*
+      memset(m_EMB1_expand, 0, sizeof(m_EMB1_expand[0][0][0]) * 128 * 4 * 1);
+      memset(m_EMB23, 0, sizeof(m_EMB23[0][0][0]) * 16 * 16 * 2);
+      memset(m_Tiles, 0, sizeof(m_Tiles[0][0][0]) * 4 * 4 * 3);
+*/
       m_duplicate_PSB = 0;
       m_duplicate_EMB1 = 0;
       m_duplicate_EMB2 = 0;
@@ -1267,6 +1517,7 @@ ATH_MSG_INFO("here2");
   }
   if (m_doEventTree) m_eventTree->Fill();
   m_clusterCount+=m_nCluster;
+  //h_calib_pred->Write();
   return StatusCode::SUCCESS;
 }
 

@@ -8,7 +8,6 @@
 # Declare the package name:
 atlas_subdir( MLTree )
 
-
 # Define long list of link libraries as a local variable
 set(	_athLINKLIBS	AthenaBaseComps
 			CaloIdentifier
@@ -33,14 +32,17 @@ set(	_athLINKLIBS	AthenaBaseComps
 			TrkCaloExtension
 			CaloDetDescrLib
 			TrkParametersIdentificationHelpers
-			InDetTrackSelectionToolLib)
-
+			InDetTrackSelectionToolLib
+                        AthExOnnxRuntimeLib
+                        PathResolver
+                        AthOnnxruntimeServiceLib
+                        AthenaBaseComps
+                        GaudiKernel)
 
 
 # External dependencies:
 # find_package( ROOT COMPONENTS Core Tree MathCore Hist RIO pthread )
 
-# Component(s) in the package:
 atlas_add_component( MLTree
                      src/*.cxx
                      src/components/*.cxx
